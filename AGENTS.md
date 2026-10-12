@@ -78,7 +78,7 @@ A test exists to catch a bug that would hurt someone. CI has no keyboard, so the
 
 ## Workflow
 
-- Never commit to `main`. One branch per change, opened as a PR.
-- Conventional Commits for every commit and PR title (`feat(protocol): …`, `fix(keyboard): …`, `docs: …`). PRs are squash-merged, so the PR title becomes the commit on `main`.
-- PRs are coherent and reviewable: one feature or concern. The description says what changed, why, and how it was verified (on hardware when it touches the device).
-- Every PR is reviewed by an independent agent against the code standards above. Address the findings and request another round. Merge only after the reviewer has no remaining structural objections, or after three rounds with any remaining disagreements written up in the PR.
+- Small changes go straight to `main`: docs, findings, config, and small fixes. Every check must still pass before pushing.
+- Big changes (a new feature, a new device capability, a restructure, or anything touching the wire format or transport) go on a branch as a PR, are reviewed by an independent agent against the code standards above, and are squash-merged once the reviewer has no remaining structural objections.
+- Conventional Commits for every commit and PR title (`feat(protocol): …`, `fix(keyboard): …`, `docs: …`).
+- A PR is one feature or concern. Its description says what changed, why, and how it was verified (on hardware when it touches the device).
