@@ -1,5 +1,4 @@
-import { KEYS, Keyboard, color, isKey, packet, parseHex, type Animation, type Key, type Rgb } from '../src';
-import { png } from './png';
+import { KEYS, Keyboard, color, isKey, packet, parseHex, png, type Animation, type Key, type Rgb } from '../src';
 import { counter, numbered, pattern, sweep, text } from './scenes';
 
 const USAGE = `usage: bun run screen <command>

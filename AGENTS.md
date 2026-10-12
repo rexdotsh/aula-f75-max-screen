@@ -27,8 +27,9 @@ src/keyboard.ts  the HID transport: open, upload, clock, key lighting, raw excha
 src/keys.ts      each key's light index
 src/frame.ts     128x128 RGB565 canvas with rects and text
 src/font.ts      5x7 bitmap font
+src/png.ts       PNG previews of frames, as the screen shows them
 src/index.ts     public API
-scripts          the screen CLI, its test scenes and PNG previews
+scripts          the screen CLI and its test scenes
 test             bun tests
 docs             PROTOCOL.md (what is known about the device) and findings/ (raw hardware sessions)
 ```
