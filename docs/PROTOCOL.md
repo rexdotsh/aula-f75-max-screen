@@ -80,6 +80,7 @@ A still image is one frame in 9 chunks. The vendor fills the unused header bytes
 
 - The keyboard shows its own progress screen (1-100%) for the whole upload, then the new image about a second after commit. There is no silent update.
 - A chunk takes about 145ms (the first about 220ms), so a still image takes about 1.5s and each further frame about 1.2s. 100 frames (801 chunks) took 115s.
+- Of each chunk's time, about 64ms is the write itself (4096 bytes at the interface's 64 bytes per millisecond) and about 78ms is the wait for the acknowledgement. Writing every chunk before reading any acknowledgement is not faster: the acknowledgements come slowly and the commit is refused (`ff`), so the keyboard needs each chunk acknowledged before the next. Image content does not matter; a still is always 9 chunks.
 - Typing is unaffected during uploads.
 - The newest upload is always the one displayed. The firmware has a single animation slot (`gif_count="1"` in the vendor's layout file); the vendor fills the slot byte with its own list index. Older uploads cannot be reached with the knob, and an upload header committed without data changes nothing.
 - Uploads live in flash. They survive unplugging and show in wireless mode too.
