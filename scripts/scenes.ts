@@ -1,4 +1,4 @@
-import { Animation, Frame, HEIGHT, WIDTH, rgb, textWidth, type Color } from '../src';
+import { Animation, Frame, HEIGHT, WIDTH, frameCount, rgb, textWidth, type Color } from '../src';
 
 const WHITE = rgb(255, 255, 255);
 const BLACK = rgb(0, 0, 0);
@@ -65,7 +65,7 @@ export function sweep(ms: number): Animation {
 
 export function numbered(count: number): Animation {
   return Animation.of(
-    Array.from({ length: count }, (_, index) => ({
+    Array.from({ length: frameCount(count) }, (_, index) => ({
       frame: label(String(index + 1), rgb((index / count) * 200, 40, 120)).rect(
         0,
         HEIGHT - 8,

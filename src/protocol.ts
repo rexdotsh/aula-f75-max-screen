@@ -1,4 +1,4 @@
-import { HEIGHT, WIDTH, type Frame } from './frame';
+import { Frame, HEIGHT, WIDTH } from './frame';
 
 export const VENDOR_ID = 0x0c45;
 export const PRODUCT_ID = 0x800a;
@@ -20,38 +20,55 @@ const ACK = Uint8Array.of(0x01, 0x5a, 0x02);
 
 const Op = { commit: 0x02, begin: 0x18, clock: 0x28, upload: 0x72 } as const;
 
-/** Frames and their display times, checked against the device's limits when built. */
+/** `count`, if an animation may have that many frames. Check before rendering them. */
+export function frameCount(count: number): number {
+  if (!(Number.isInteger(count) && count >= 1 && count <= MAX_FRAMES)) {
+    throw new RangeError(`an animation has 1-${MAX_FRAMES} frames, not ${count}`);
+  }
+  return count;
+}
+
+function ticks(ms: number): number {
+  if (!(ms >= TICK_MS && ms <= MAX_FRAME_MS))
+    throw new RangeError(`a frame lasts ${TICK_MS}-${MAX_FRAME_MS}ms, not ${ms}`);
+  return Math.round(ms / TICK_MS);
+}
+
+/** A snapshot of frames and their display times, checked against the device's limits when built. */
 export class Animation {
-  private constructor(
-    readonly frames: readonly Frame[],
-    readonly ticks: readonly number[],
-  ) {}
+  readonly #entries: readonly { readonly pixels: Uint16Array; readonly ticks: number }[];
+
+  private constructor(entries: Animation['entries']) {
+    this.#entries = entries;
+  }
 
   static of(frames: readonly { frame: Frame; ms: number }[]): Animation {
-    if (frames.length < 1 || frames.length > MAX_FRAMES) {
-      throw new RangeError(`an animation has 1-${MAX_FRAMES} frames, not ${frames.length}`);
-    }
-    const ticks = frames.map(({ ms }) => {
-      if (!(ms >= TICK_MS && ms <= MAX_FRAME_MS))
-        throw new RangeError(`a frame lasts ${TICK_MS}-${MAX_FRAME_MS}ms, not ${ms}`);
-      return Math.round(ms / TICK_MS);
-    });
+    frameCount(frames.length);
     return new Animation(
-      frames.map(({ frame }) => frame),
-      ticks,
+      Array.from(frames, (entry: { frame: Frame; ms: number } | undefined) => {
+        if (!(entry?.frame instanceof Frame)) throw new TypeError('every animation entry needs a frame');
+        return Object.freeze({ pixels: entry.frame.pixels.slice(), ticks: ticks(entry.ms) });
+      }),
     );
   }
 
   static still(frame: Frame): Animation {
     return Animation.of([{ frame, ms: MAX_FRAME_MS }]);
   }
+
+  get entries(): readonly { readonly pixels: Uint16Array; readonly ticks: number }[] {
+    return this.#entries;
+  }
 }
 
-/** A command packet: `bytes` zero padded to the device's 64-byte report. */
+/** A command packet: `bytes` zero padded to the device's 64-byte report. Anything but whole bytes is refused. */
 export function packet(bytes: ArrayLike<number>): Uint8Array {
   if (bytes.length > PACKET) throw new RangeError(`a command is at most ${PACKET} bytes`);
   const padded = new Uint8Array(PACKET);
-  padded.set(Array.from(bytes));
+  Array.from(bytes).forEach((byte, index) => {
+    if (!(Number.isInteger(byte) && byte >= 0 && byte <= 0xff)) throw new RangeError(`not a byte: ${byte}`);
+    padded[index] = byte;
+  });
   return padded;
 }
 
@@ -71,12 +88,13 @@ export function acknowledged(report: Uint8Array): boolean {
 }
 
 function encode(animation: Animation): Uint8Array {
-  const stream = new Uint8Array(Math.ceil((HEADER + animation.frames.length * FRAME_BYTES) / CHUNK) * CHUNK);
+  const { entries } = animation;
+  const stream = new Uint8Array(Math.ceil((HEADER + entries.length * FRAME_BYTES) / CHUNK) * CHUNK);
   const view = new DataView(stream.buffer);
-  stream.set([animation.frames.length, ...animation.ticks]);
-  animation.frames.forEach((frame, index) => {
+  stream.set([entries.length, ...entries.map((entry) => entry.ticks)]);
+  entries.forEach(({ pixels }, index) => {
     const offset = HEADER + index * FRAME_BYTES;
-    frame.pixels.forEach((pixel, at) => view.setUint16(offset + at * 2, pixel, true));
+    pixels.forEach((pixel, at) => view.setUint16(offset + at * 2, pixel, true));
   });
   return stream;
 }
@@ -94,6 +112,7 @@ export function uploadCommands(animation: Animation): { header: Uint8Array; chun
 
 /** The clock header and the payload that sets the time; the keyboard echoes the payload back. */
 export function clockCommands(date: Date): { header: Uint8Array; payload: Uint8Array } {
+  if (Number.isNaN(date.getTime())) throw new RangeError('cannot set the clock to an invalid date');
   const header = packet([0x04, Op.clock]);
   header[8] = 0x01;
   const payload = packet([

@@ -1,4 +1,4 @@
-import { HIDAsync, devices } from 'node-hid';
+import { HIDAsync, devicesAsync } from 'node-hid';
 import {
   PRODUCT_ID,
   USAGE_PAGE,
@@ -20,52 +20,84 @@ export class KeyboardError extends Error {
   override name = 'KeyboardError';
 }
 
+function keyboardError(error: unknown, message: string): KeyboardError {
+  return error instanceof KeyboardError ? error : new KeyboardError(message, { cause: error });
+}
+
+const settled = () => undefined;
+
+async function openPair(commandPath: string, displayPath: string): Promise<[HIDAsync, HIDAsync]> {
+  const command = await HIDAsync.open(commandPath);
+  try {
+    return [command, await HIDAsync.open(displayPath)];
+  } catch (error) {
+    await command.close().catch((closing: unknown) => {
+      throw new AggregateError(
+        [error, closing],
+        'opening the display interface and closing the command one both failed',
+        {
+          cause: error,
+        },
+      );
+    });
+    throw error;
+  }
+}
+
 export class Keyboard {
   readonly #command: HIDAsync;
   readonly #display: HIDAsync;
   #queue: Promise<void> = Promise.resolve();
-  #closed = false;
+  #broken = false;
+  #closing: Promise<void> | undefined;
 
-  private constructor(command: HIDAsync, display: HIDAsync) {
+  private constructor([command, display]: [HIDAsync, HIDAsync]) {
     this.#command = command;
     this.#display = display;
   }
 
   /** Opens the keyboard, or resolves to `undefined` when it is not plugged in over USB, the only way to the screen. */
   static async open(): Promise<Keyboard | undefined> {
-    const found = devices(VENDOR_ID, PRODUCT_ID);
-    const path = (page: number) => found.find((device) => device.usagePage === page)?.path;
-    const commandPath = path(USAGE_PAGE.command);
-    const displayPath = path(USAGE_PAGE.display);
-    if (!commandPath || !displayPath) return undefined;
-    const command = await HIDAsync.open(commandPath);
     try {
-      return new Keyboard(command, await HIDAsync.open(displayPath));
+      const found = await devicesAsync(VENDOR_ID, PRODUCT_ID);
+      const paths = (page: number) =>
+        found.flatMap((device) => (device.usagePage === page && device.path ? [device.path] : []));
+      const commands = paths(USAGE_PAGE.command);
+      const displays = paths(USAGE_PAGE.display);
+      const [command] = commands;
+      const [display] = displays;
+      if (!command || !display) return undefined;
+      // Nothing ties a command interface to its display interface, so two keyboards cannot be paired safely.
+      if (commands.length > 1 || displays.length > 1) throw new KeyboardError('more than one keyboard is plugged in');
+      return new Keyboard(await openPair(command, display));
     } catch (error) {
-      await command.close();
-      throw error;
+      throw keyboardError(error, 'could not open the keyboard');
     }
   }
 
   /** Replaces the screen's animation. The keyboard shows its own progress screen until the upload commits. */
   upload(animation: Animation, onProgress?: (sent: number, total: number) => void): Promise<void> {
-    const { header, chunks } = uploadCommands(animation);
-    return this.#transaction(header, async () => {
-      await this.#drain();
-      for (const [index, chunk] of chunks.entries()) {
-        // oxlint-disable-next-line no-await-in-loop -- the keyboard acknowledges each chunk before taking the next
-        await this.#write(chunk, `chunk ${index + 1} of ${chunks.length}`);
-        onProgress?.(index + 1, chunks.length);
-      }
+    return this.#serial(async () => {
+      const { header, chunks } = uploadCommands(animation);
+      await this.#transaction(header, async () => {
+        for (const [index, chunk] of chunks.entries()) {
+          // oxlint-disable-next-line no-await-in-loop -- the keyboard acknowledges each chunk before taking the next
+          await this.#write(chunk, `chunk ${index + 1} of ${chunks.length}`);
+          onProgress?.(index + 1, chunks.length);
+        }
+      });
     });
   }
 
-  /** Sets the keyboard clock. The screen switches to the clock page. */
-  syncClock(date = new Date()): Promise<void> {
-    const { header, payload } = clockCommands(date);
-    return this.#transaction(header, async () => {
-      const reply = await this.#exchange(payload);
-      if (!echoed(payload, reply)) throw new KeyboardError(`clock payload not echoed: ${reply.toHex()}`);
+  /** Sets the keyboard clock to `date`, or to the time the sync runs. The screen switches to the clock page. */
+  async syncClock(date?: Date): Promise<void> {
+    const fixed = date && clockCommands(date);
+    return this.#serial(async () => {
+      const { header, payload } = fixed ?? clockCommands(new Date());
+      await this.#transaction(header, async () => {
+        const reply = await this.#exchange(payload);
+        if (!echoed(payload, reply)) throw new KeyboardError(`clock payload not echoed: ${reply.toHex()}`);
+      });
     });
   }
 
@@ -75,33 +107,38 @@ export class Keyboard {
     return this.#serial(() => this.#exchange(command));
   }
 
+  /** Closes the keyboard once queued work has finished. Later calls reject. */
   close(): Promise<void> {
-    const closing = this.#serial(async () => {
-      await Promise.all([this.#command.close(), this.#display.close()]);
-    });
-    this.#closed = true;
-    return closing;
+    this.#closing ??= this.#queue
+      .then(() => Promise.all([this.#command.close(), this.#display.close()]))
+      .then(settled, (error: unknown) => {
+        throw keyboardError(error, 'could not close the keyboard');
+      });
+    return this.#closing;
   }
 
+  // After a failed transfer the keyboard may still answer it late, and every acknowledgement looks the same, so
+  // nothing more is sent on this connection: queued work is refused and the caller has to reopen.
   #serial<T>(work: () => Promise<T>): Promise<T> {
-    if (this.#closed) return Promise.reject(new KeyboardError('the keyboard is closed'));
-    const run = this.#queue.then(work).catch((error: unknown) => {
-      throw error instanceof KeyboardError ? error : new KeyboardError('HID transfer failed', { cause: error });
+    if (this.#closing) return Promise.reject(new KeyboardError('the keyboard is closed'));
+    const run = this.#queue.then(async () => {
+      if (this.#broken) throw new KeyboardError('an earlier transfer failed; close and reopen the keyboard');
+      try {
+        return await work();
+      } catch (error) {
+        this.#broken = true;
+        throw keyboardError(error, 'HID transfer failed');
+      }
     });
-    this.#queue = run.then(
-      () => undefined,
-      () => undefined,
-    );
+    this.#queue = run.then(settled, settled);
     return run;
   }
 
-  #transaction(header: Uint8Array, body: () => Promise<void>): Promise<void> {
-    return this.#serial(async () => {
-      await this.#run(begin());
-      await this.#run(header);
-      await body();
-      await this.#run(commit());
-    });
+  async #transaction(header: Uint8Array, body: () => Promise<void>): Promise<void> {
+    await this.#run(begin());
+    await this.#run(header);
+    await body();
+    await this.#run(commit());
   }
 
   async #exchange(command: Uint8Array): Promise<Uint8Array> {
@@ -115,12 +152,6 @@ export class Keyboard {
     if (!accepted(command, reply)) {
       throw new KeyboardError(`command ${command.subarray(0, 2).toHex()} rejected: ${reply.subarray(0, 8).toHex()}`);
     }
-  }
-
-  // An acknowledgement left over from a failed upload would pair every later chunk with the wrong ack.
-  async #drain(): Promise<void> {
-    const stale = await this.#display.read(0);
-    if (stale?.length) await this.#drain();
   }
 
   async #write(chunk: Uint8Array, name: string): Promise<void> {
