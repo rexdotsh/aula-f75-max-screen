@@ -29,24 +29,28 @@ A command is a 64-byte feature report on MI_03, `04 <op>` followed by arguments,
 
 A write is `begin`, a header naming how many 64-byte data packets follow (`[8]`), the packets, `commit`, and for settings kept in flash a final `save`. The vendor sleeps 35ms before every command; we have not needed to.
 
-| Op   | Command                  | Arguments                                                                  |            |
-| ---- | ------------------------ | -------------------------------------------------------------------------- | ---------- |
-| `18` | begin                    |                                                                            | confirmed  |
-| `02` | commit                   |                                                                            | confirmed  |
-| `72` | upload header            | `[2]` slot, `[8..9]` chunk count, u16 little-endian                        | confirmed  |
-| `28` | clock header             | `[8] = 01`, then the clock payload                                         | confirmed  |
-| `f0` | save                     | after commit, for key maps, lighting and colour profiles                   | decompiled |
-| `17` | settings                 | `[2] = 01`, `[8] = 01`; payload `00 01 a b c fn sleep 00 response … aa 55` | decompiled |
-| `11` | base layer key map       | `[8] = 09`, then the 576-byte key map                                      | decompiled |
-| `27` | Fn layer key map         | `[8] = 09`, then the 576-byte key map                                      | decompiled |
-| `13` | lighting mode            | `[8] = 01`; payload `mode r g b …`, `aa 55` at 14-15                       | decompiled |
-| `23` | per-key colour profile   | `[8] = 09`; 4 bytes per key, `index r g b`                                 | decompiled |
-| `f5` | per-key colour read      | `[8] = 09`; the keyboard sends the profile back                            | decompiled |
-| `20` | real-time per-key colour | `[8] = 08`, no begin; a live colour frame                                  | decompiled |
-| `19` | begin macro write        | in place of `18`                                                           | decompiled |
-| `15` | macro data               | `[8]` = packet count, payload ends `aa 55`                                 | decompiled |
+| Op   | Command                  | Arguments                                                                                           |                       |
+| ---- | ------------------------ | --------------------------------------------------------------------------------------------------- | --------------------- |
+| `18` | begin                    |                                                                                                     | confirmed             |
+| `02` | commit                   |                                                                                                     | confirmed             |
+| `72` | upload header            | `[2]` slot, `[8..9]` chunk count, u16 little-endian                                                 | confirmed             |
+| `28` | clock header             | `[8] = 01`, then the clock payload                                                                  | confirmed             |
+| `f0` | save                     | after commit, for key maps, lighting and colour profiles                                            | decompiled            |
+| `17` | settings                 | `[2] = 01`, `[8] = 01`; payload `00 01 a b c fn sleep 00 response … aa 55`                          | decompiled            |
+| `11` | base layer key map       | `[8] = 09`, then the 576-byte key map                                                               | decompiled            |
+| `27` | Fn layer key map         | `[8] = 09`, then the 576-byte key map                                                               | decompiled            |
+| `13` | lighting mode            | `[8] = 01`; payload `mode r g b …`, `aa 55` at 14-15; mode `80` is user-defined                     | confirmed (mode `80`) |
+| `23` | per-key colour profile   | `[8] = 09`; 4 bytes per key at `light_index * 4`, `index r g b`, `aa 55` at 574-575                 | confirmed             |
+| `f5` | per-key colour read      | `[8] = 09`; the keyboard sends the profile back                                                     | decompiled            |
+| `20` | real-time per-key colour | `[8] = 08`, no begin; a live colour frame. Accepted but not shown in the stock or user-defined mode | open                  |
+| `19` | begin macro write        | in place of `18`                                                                                    | decompiled            |
+| `15` | macro data               | `[8]` = packet count, payload ends `aa 55`                                                          | decompiled            |
 
 Prior work labelled `19`/`15` "display clear", `17` "display config", `27` "lighting" and `13` "reset footer"; the vendor code says otherwise.
+
+### Per-key lighting (confirmed)
+
+Switch to the user-defined mode (`04 13`, mode `80`), then each `04 23` write sets every key's colour, with keys indexed by `light_index` from the vendor's layout file (Esc is 1). A write takes about 72ms and shows immediately, without `f0`; blinking a key by rewriting works cleanly. The keyboard runs on its battery when unplugged, so persistence across a replug does not show whether a write without `f0` reaches flash. See [session 2](findings/2026-10-12-session2-key-lighting.md).
 
 ### Key maps (decompiled)
 
