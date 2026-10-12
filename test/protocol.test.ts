@@ -1,6 +1,15 @@
 import { expect, test } from 'bun:test';
 import { Animation, Frame, rgb } from '../src';
-import { accepted, acknowledged, clockCommands, packet, uploadCommands } from '../src/protocol';
+import {
+  accepted,
+  acknowledged,
+  clockCommands,
+  customLightingCommands,
+  keyColorsCommands,
+  packet,
+  uploadCommands,
+  type Write,
+} from '../src/protocol';
 
 const FRAME_BYTES = 128 * 128 * 2;
 const stream = (animation: Animation) => Buffer.concat(uploadCommands(animation).chunks);
@@ -79,11 +88,36 @@ test('the upload header names slot 1 and the chunk count little-endian', () => {
   ).toBe('04720100000000002103');
 });
 
+const bytes = ({ header, packets }: Write) => ({ header: header.subarray(0, 9).toHex(), data: Buffer.concat(packets) });
+
 test('the clock payload matches what the keyboard echoed on hardware', () => {
-  const { header, payload } = clockCommands(new Date(2026, 9, 12, 16, 52, 58));
-  expect(header.subarray(0, 9).toHex()).toBe('042800000000000001');
-  expect(payload.subarray(0, 11).toHex()).toBe('00015a1a0a0c10343a0001');
-  expect(payload.subarray(62).toHex()).toBe('aa55');
+  const { header, data } = bytes(clockCommands(new Date(2026, 9, 12, 16, 52, 58)));
+  expect(header).toBe('042800000000000001');
+  expect(data.subarray(0, 11).toHex()).toBe('00015a1a0a0c10343a0001');
+  expect(data.subarray(62).toHex()).toBe('aa55');
+});
+
+test('custom lighting matches the mode switch that worked on hardware', () => {
+  const { header, data } = bytes(customLightingCommands(4));
+  expect(header).toBe('041300000000000001');
+  expect(data.toHex()).toBe(`80${'00'.repeat(8)}04${'00'.repeat(4)}aa55${'00'.repeat(48)}`);
+});
+
+test('key colours put each key at its light index and fill nine packets', () => {
+  const { header, data } = bytes(keyColorsCommands({ esc: [255, 0, 0], pagedown: [0, 0, 255] }));
+  expect(header).toBe('042300000000000009');
+  expect(data).toHaveLength(576);
+  expect(data.subarray(4, 8).toHex()).toBe('01ff0000');
+  expect(data.subarray(121 * 4, 121 * 4 + 4).toHex()).toBe('790000ff');
+  expect(data.subarray(574).toHex()).toBe('aa55');
+});
+
+test.each([
+  ['an unknown key', () => keyColorsCommands(JSON.parse('{"hyper": [1, 2, 3]}'))],
+  ['a channel above a byte', () => keyColorsCommands({ esc: [256, 0, 0] })],
+  ['a brightness above 5', () => customLightingCommands(6)],
+])('lighting with %s is refused', (_, build) => {
+  expect(build).toThrow(RangeError);
 });
 
 test.each([

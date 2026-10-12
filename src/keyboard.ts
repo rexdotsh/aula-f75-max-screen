@@ -8,11 +8,16 @@ import {
   begin,
   clockCommands,
   commit,
+  customLightingCommands,
   echoed,
+  keyColorsCommands,
   packet,
   uploadCommands,
   type Animation,
+  type Write,
 } from './protocol';
+import type { Rgb } from './frame';
+import type { Key } from './keys';
 
 const ACK_TIMEOUT_MS = 1000;
 
@@ -92,13 +97,19 @@ export class Keyboard {
   /** Sets the keyboard clock to `date`, or to the time the sync runs. The screen switches to the clock page. */
   async syncClock(date?: Date): Promise<void> {
     const fixed = date && clockCommands(date);
-    return this.#serial(async () => {
-      const { header, payload } = fixed ?? clockCommands(new Date());
-      await this.#transaction(header, async () => {
-        const reply = await this.#exchange(payload);
-        if (!echoed(payload, reply)) throw new KeyboardError(`clock payload not echoed: ${reply.toHex()}`);
-      });
-    });
+    return this.#serial(() => this.#store(fixed ?? clockCommands(new Date())));
+  }
+
+  /** Switches the key lights from the current effect to the colours set with `setKeyColors`, at brightness 0-5. */
+  async customLighting(brightness = 5): Promise<void> {
+    const commands = customLightingCommands(brightness);
+    return this.#serial(() => this.#store(commands));
+  }
+
+  /** Sets every key's colour for the custom lighting: the keys named take theirs, the rest go dark. */
+  async setKeyColors(colors: Readonly<Partial<Record<Key, Rgb>>>): Promise<void> {
+    const commands = keyColorsCommands(colors);
+    return this.#serial(() => this.#store(commands));
   }
 
   /** Sends one raw command, zero padded to 64 bytes, and returns the reply. For probing undocumented commands. */
@@ -139,6 +150,16 @@ export class Keyboard {
     await this.#run(header);
     await body();
     await this.#run(commit());
+  }
+
+  #store({ header, packets }: Write): Promise<void> {
+    return this.#transaction(header, async () => {
+      for (const data of packets) {
+        // oxlint-disable-next-line no-await-in-loop -- each packet is echoed before the next is sent
+        const reply = await this.#exchange(data);
+        if (!echoed(data, reply)) throw new KeyboardError(`packet not echoed: ${reply.toHex()}`);
+      }
+    });
   }
 
   async #exchange(command: Uint8Array): Promise<Uint8Array> {

@@ -1,4 +1,4 @@
-import { Keyboard, color, packet, type Animation } from '../src';
+import { KEYS, Keyboard, color, isKey, packet, parseHex, type Animation, type Key, type Rgb } from '../src';
 import { png } from './png';
 import { counter, numbered, pattern, sweep, text } from './scenes';
 
@@ -15,6 +15,8 @@ scenes, uploaded to the keyboard:
 
 device:
   clock                    sync the keyboard clock
+  lighting [0-5]           switch the key lights to custom colours, at a brightness (default 5)
+  keys <key=#rrggbb>...    set the custom colours, e.g. keys esc=#ff0000 q=#00ff00; other keys go dark
   send <hex>               send one raw command, zero padded to 64 bytes, and print the reply`;
 
 function int(value: string | undefined, fallback: number): number {
@@ -54,8 +56,38 @@ async function withKeyboard(work: (keyboard: Keyboard) => Promise<void>): Promis
   }
 }
 
+function keyColors(assignments: string[]): Partial<Record<Key, Rgb>> {
+  return Object.fromEntries(
+    assignments.map((assignment) => {
+      const [name = '', hex = ''] = assignment.split('=');
+      if (!isKey(name)) throw new RangeError(`no key named ${name}; use one of ${Object.keys(KEYS).join(' ')}`);
+      return [name, parseHex(hex)];
+    }),
+  );
+}
+
 const DEVICE = new Map<string, Command<Promise<void>>>([
   ['clock', { arity: [0, 0], run: () => withKeyboard((keyboard) => keyboard.syncClock()) }],
+  [
+    'lighting',
+    {
+      arity: [0, 1],
+      run: ([brightness]) => {
+        const level = int(brightness, 5);
+        return withKeyboard((keyboard) => keyboard.customLighting(level));
+      },
+    },
+  ],
+  [
+    'keys',
+    {
+      arity: [1, Object.keys(KEYS).length],
+      run: (assignments) => {
+        const colors = keyColors(assignments);
+        return withKeyboard((keyboard) => keyboard.setKeyColors(colors));
+      },
+    },
+  ],
   [
     'send',
     {

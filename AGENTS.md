@@ -23,7 +23,8 @@ Bun is the only package manager and script runner. Never use npm, pnpm or yarn. 
 
 ```
 src/protocol.ts  wire format: ids, packets, stream encoding. Pure, no I/O
-src/keyboard.ts  the HID transport: open, upload, clock, raw exchange
+src/keyboard.ts  the HID transport: open, upload, clock, key lighting, raw exchange
+src/keys.ts      each key's light index
 src/frame.ts     128x128 RGB565 canvas with rects and text
 src/font.ts      5x7 bitmap font
 src/index.ts     public API
