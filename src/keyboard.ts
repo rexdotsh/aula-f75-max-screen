@@ -18,6 +18,7 @@ import {
 } from './protocol';
 import type { Rgb } from './frame';
 import type { Key } from './keys';
+import { withLock } from './lock';
 
 const ACK_TIMEOUT_MS = 1000;
 
@@ -84,6 +85,7 @@ export class Keyboard {
   upload(animation: Animation, onProgress?: (sent: number, total: number) => void): Promise<void> {
     return this.#serial(async () => {
       const { header, chunks } = uploadCommands(animation);
+      await this.#drain();
       await this.#transaction(header, async () => {
         for (const [index, chunk] of chunks.entries()) {
           // oxlint-disable-next-line no-await-in-loop -- the keyboard acknowledges each chunk before taking the next
@@ -129,17 +131,23 @@ export class Keyboard {
   }
 
   // After a failed transfer the keyboard may still answer it late, and every acknowledgement looks the same, so
-  // nothing more is sent on this connection: queued work is refused and the caller has to reopen.
+  // nothing more is sent on this connection: queued work is refused and the caller has to reopen. Waiting for another
+  // process to let go of the keyboard sends nothing, so timing out there leaves the connection usable.
   #serial<T>(work: () => Promise<T>): Promise<T> {
     if (this.#closing) return Promise.reject(new KeyboardError('the keyboard is closed'));
     const run = this.#queue.then(async () => {
       if (this.#broken) throw new KeyboardError('an earlier transfer failed; close and reopen the keyboard');
-      try {
-        return await work();
-      } catch (error) {
-        this.#broken = true;
-        throw keyboardError(error, 'HID transfer failed');
-      }
+      const transfer = async () => {
+        try {
+          return await work();
+        } catch (error) {
+          this.#broken = true;
+          throw keyboardError(error, 'HID transfer failed');
+        }
+      };
+      return withLock(transfer).catch((error: unknown) => {
+        throw keyboardError(error, 'the keyboard is busy in another process');
+      });
     });
     this.#queue = run.then(settled, settled);
     return run;
@@ -173,6 +181,13 @@ export class Keyboard {
     if (!accepted(command, reply)) {
       throw new KeyboardError(`command ${command.subarray(0, 2).toHex()} rejected: ${reply.subarray(0, 8).toHex()}`);
     }
+  }
+
+  // Every open handle receives every acknowledgement, so one waiting on the lock collects another process's. That
+  // process released the lock only after its last acknowledgement, so under the lock these are all already here.
+  async #drain(): Promise<void> {
+    const stale = await this.#display.read(0);
+    if (stale?.length) await this.#drain();
   }
 
   async #write(chunk: Uint8Array, name: string): Promise<void> {
