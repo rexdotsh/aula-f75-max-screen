@@ -25,6 +25,7 @@ Bun is the only package manager and script runner. Never use npm, pnpm or yarn. 
 src/protocol.ts  wire format: ids, packets, stream encoding. Pure, no I/O
 src/keyboard.ts  the HID transport: open, upload, clock, key lighting, raw exchange
 src/keys.ts      each key's light index
+src/lock.ts      the lock file every process takes around each operation
 src/frame.ts     128x128 RGB565 canvas with rects and text
 src/font.ts      5x7 bitmap font
 src/png.ts       PNG previews of frames, as the screen shows them
@@ -40,6 +41,8 @@ docs             PROTOCOL.md (what is known about the device) and findings/ (raw
 - Input is validated once, when it is built: an `Animation` can only exist within the device's limits, a `Color` only comes from `rgb` or `color`. Nothing downstream re-checks.
 - The screen is reachable only over USB. `Keyboard.open()` resolves to `undefined` when the keyboard is not plugged in; that is an expected state, not an error.
 - One `Keyboard` serialises its own operations, so callers may fire uploads concurrently without interleaving packets on the wire. Once `close()` is called, later calls reject.
+- Every operation also holds a lock file in the temp directory for its whole transaction, so separate `Keyboard`s and separate processes (a plugin, the CLI) take turns instead of interleaving, which leaves the keyboard stuck mid-upload. A lock whose holder died is taken over; waiting for a live holder sends nothing, so a timeout there does not break the connection.
+- Every open handle receives every chunk acknowledgement, so an upload drains its handle under the lock before sending: another process's acknowledgements would otherwise pass for its own.
 - Every reply is checked: the op echo and accepted status of each command, the echo of each payload, the prefix of each chunk acknowledgement. A mismatch, or any HID failure, throws `KeyboardError`. Never retry or skip silently.
 - A failed transfer breaks the connection: a late reply could pair with the next command, so that `Keyboard` refuses all further work, including work already queued, until it is closed and reopened. Inputs are validated before they are queued, so only transfers can fail inside the queue.
 - An `Animation` snapshots its pixels when built and is encoded only when its upload runs.
