@@ -39,6 +39,8 @@ docs             PROTOCOL.md (what is known about the device) and findings/ (raw
 - The screen is reachable only over USB. `Keyboard.open()` resolves to `undefined` when the keyboard is not plugged in; that is an expected state, not an error.
 - One `Keyboard` serialises its own operations, so callers may fire uploads concurrently without interleaving packets on the wire. Once `close()` is called, later calls reject.
 - Every reply is checked: the op echo and accepted status of each command, the echo of each payload, the prefix of each chunk acknowledgement. A mismatch, or any HID failure, throws `KeyboardError`. Never retry or skip silently.
+- A failed transfer breaks the connection: a late reply could pair with the next command, so that `Keyboard` refuses all further work, including work already queued, until it is closed and reopened. Inputs are validated before they are queued, so only transfers can fail inside the queue.
+- An `Animation` snapshots its pixels when built and is encoded only when its upload runs.
 - node-hid feature reports have no timeout, so a wedged device blocks that `Keyboard`'s queue until it is unplugged.
 - The CLI rejects arguments it does not use, so a mistyped flag can never turn into a device command.
 - Frames are RGB565 from the moment they are drawn; there is no second pixel format.

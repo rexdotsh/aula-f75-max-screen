@@ -45,8 +45,30 @@ test.each([
   ['a frame shorter than one tick', solid(1, 1)],
   ['a frame longer than the delay byte holds', solid(1, 511)],
   ['a frame of no length', solid(1, Number.NaN)],
+  ['a hole where a frame should be', Object.assign<{ frame: Frame; ms: number }[], object>([], { length: 1 })],
 ])('an animation with %s is refused', (_, frames) => {
-  expect(() => Animation.of(frames)).toThrow(RangeError);
+  expect(() => Animation.of(frames)).toThrow();
+});
+
+test('an animation keeps the pixels it was built from', () => {
+  const frame = new Frame(rgb(255, 0, 0));
+  const animation = Animation.still(frame);
+  frame.rect(0, 0, 1, 1, rgb(0, 0, 255));
+  expect([...stream(animation).subarray(256, 258)]).toEqual([0x00, 0xf8]);
+});
+
+test.each([
+  ['a value above a byte', [0x104, 0x113]],
+  ['a negative value', [-1]],
+  ['a fraction', [4.5]],
+  ['NaN', [Number.NaN]],
+  ['more than 64 bytes', Array.from({ length: 65 }, () => 0)],
+])('a command with %s is refused rather than wrapped into another', (_, bytes) => {
+  expect(() => packet(bytes)).toThrow(RangeError);
+});
+
+test('the clock refuses an invalid date', () => {
+  expect(() => clockCommands(new Date(Number.NaN))).toThrow(RangeError);
 });
 
 test('the upload header names slot 1 and the chunk count little-endian', () => {

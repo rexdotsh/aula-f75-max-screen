@@ -1,5 +1,5 @@
 import { deflateSync } from 'node:zlib';
-import { HEIGHT, WIDTH, channels, type Frame } from '../src';
+import { HEIGHT, WIDTH, channels } from '../src';
 
 const SCALE = 2;
 const SIGNATURE = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
@@ -14,14 +14,14 @@ function chunk(type: string, data: Uint8Array): Uint8Array {
   return out;
 }
 
-/** The frames side by side as the screen shows them, each pixel drawn twice as large. */
-export function png(frames: readonly Frame[]): Uint8Array {
+/** RGB565 frames side by side as the screen shows them, each pixel drawn twice as large. */
+export function png(frames: readonly Uint16Array[]): Uint8Array {
   const width = frames.length * WIDTH * SCALE;
   const height = HEIGHT * SCALE;
   const stride = 1 + width * 3;
   const rows = new Uint8Array(height * stride);
-  frames.forEach((frame, index) => {
-    frame.pixels.forEach((pixel, at) => {
+  frames.forEach((pixels, index) => {
+    pixels.forEach((pixel, at) => {
       const rgb = channels(pixel);
       const left = (index * WIDTH + (at % WIDTH)) * SCALE;
       const top = Math.floor(at / WIDTH) * SCALE;

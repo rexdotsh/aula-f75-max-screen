@@ -1,4 +1,4 @@
-import { Keyboard, color, type Animation } from '../src';
+import { Keyboard, color, packet, type Animation } from '../src';
 import { png } from './png';
 import { counter, numbered, pattern, sweep, text } from './scenes';
 
@@ -60,10 +60,12 @@ const DEVICE = new Map<string, Command<Promise<void>>>([
     'send',
     {
       arity: [1, 1],
-      run: ([hex = '']) =>
-        withKeyboard(async (keyboard) => {
-          process.stdout.write(`${(await keyboard.exchange(Uint8Array.fromHex(hex))).toHex()}\n`);
-        }),
+      run: ([hex = '']) => {
+        const command = packet(Uint8Array.fromHex(hex));
+        return withKeyboard(async (keyboard) => {
+          process.stdout.write(`${(await keyboard.exchange(command)).toHex()}\n`);
+        });
+      },
     },
   ],
 ]);
@@ -73,11 +75,11 @@ async function upload(animation: Animation): Promise<void> {
   await withKeyboard((keyboard) =>
     keyboard.upload(animation, (sent, total) => process.stderr.write(`\rchunk ${sent}/${total}`)),
   );
-  console.error(`\nuploaded ${animation.frames.length} frame(s) in ${Math.round(performance.now() - started)}ms`);
+  console.error(`\nuploaded ${animation.entries.length} frame(s) in ${Math.round(performance.now() - started)}ms`);
 }
 
 async function preview(file: string, animation: Animation): Promise<void> {
-  await Bun.write(file, png(animation.frames));
+  await Bun.write(file, png(animation.entries.map(({ pixels }) => pixels)));
   console.error(`wrote ${file}`);
 }
 

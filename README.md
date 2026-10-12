@@ -9,10 +9,15 @@ import { Animation, Frame, Keyboard, color } from 'aula-f75-max-screen';
 
 const keyboard = await Keyboard.open();
 if (keyboard) {
-  await keyboard.upload(Animation.still(new Frame(color('#0050a0')).centerText('BUSY', 56, color('#ffffff'), 3)));
-  await keyboard.close();
+  try {
+    await keyboard.upload(Animation.still(new Frame(color('#0050a0')).centerText('BUSY', 56, color('#ffffff'), 3)));
+  } finally {
+    await keyboard.close();
+  }
 }
 ```
+
+A failed transfer leaves the keyboard's state unknown, so that `Keyboard` refuses further work: close it and open a new one.
 
 `Animation.of([{ frame, ms }, …])` builds an animation of up to 255 frames of 2-510ms each, and refuses anything else. Every upload shows the keyboard's own progress screen first: about 1.5s for a still image, about 1.2s per extra frame.
 
