@@ -1,6 +1,6 @@
 # Aula F75 Max screen protocol
 
-**Confirmed** means seen on our hardware (sessions in [findings](findings)). **Reported** means taken from prior work and not yet checked here.
+**Confirmed** means seen on our hardware (sessions in [findings](findings)). **Decompiled** means read from the vendor driver's code ([decompilation notes](findings/2026-10-12-vendor-decompile.md)) but not yet exercised here. **Reported** means taken from prior work and not yet checked either way.
 
 ## Device
 
@@ -27,19 +27,30 @@ A command is a 64-byte feature report on MI_03, `04 <op>` followed by arguments,
 | `00`   | commit after an upload header whose data never arrived; nothing changes |
 | `ff`   | commit with nothing pending                                             |
 
-| Op   | Command             | Arguments                                                   |                         |
-| ---- | ------------------- | ----------------------------------------------------------- | ----------------------- |
-| `18` | begin               |                                                             | confirmed               |
-| `72` | upload header       | `[2]` slot, `[8..9]` chunk count, u16 little-endian         | confirmed               |
-| `28` | clock header        | `[8] = 01`, then the clock payload                          | confirmed               |
-| `02` | commit              |                                                             | confirmed               |
-| `19` | begin display clear |                                                             | reported, factory reset |
-| `15` | clear display slots | `[8] = 08`, then 8 zero packets                             | reported, factory reset |
-| `17` | display config      | `[2] = 01`, `[8] = 01`, then `00 01 00 00 00 00 02 00 02 …` | reported, factory reset |
-| `11` | keymap write        | `[8] = 09`, then 9 packets                                  | reported                |
-| `27` | lighting write      | `[8] = 09`, then 9 packets                                  | reported                |
-| `13` | reset footer        | `[8] = 01`, then a payload                                  | reported                |
-| `f0` | apply               |                                                             | reported                |
+A write is `begin`, a header naming how many 64-byte data packets follow (`[8]`), the packets, `commit`, and for settings kept in flash a final `save`. The vendor sleeps 35ms before every command; we have not needed to.
+
+| Op   | Command                  | Arguments                                                                  |            |
+| ---- | ------------------------ | -------------------------------------------------------------------------- | ---------- |
+| `18` | begin                    |                                                                            | confirmed  |
+| `02` | commit                   |                                                                            | confirmed  |
+| `72` | upload header            | `[2]` slot, `[8..9]` chunk count, u16 little-endian                        | confirmed  |
+| `28` | clock header             | `[8] = 01`, then the clock payload                                         | confirmed  |
+| `f0` | save                     | after commit, for key maps, lighting and colour profiles                   | decompiled |
+| `17` | settings                 | `[2] = 01`, `[8] = 01`; payload `00 01 a b c fn sleep 00 response … aa 55` | decompiled |
+| `11` | base layer key map       | `[8] = 09`, then the 576-byte key map                                      | decompiled |
+| `27` | Fn layer key map         | `[8] = 09`, then the 576-byte key map                                      | decompiled |
+| `13` | lighting mode            | `[8] = 01`; payload `mode r g b …`, `aa 55` at 14-15                       | decompiled |
+| `23` | per-key colour profile   | `[8] = 09`; 4 bytes per key, `index r g b`                                 | decompiled |
+| `f5` | per-key colour read      | `[8] = 09`; the keyboard sends the profile back                            | decompiled |
+| `20` | real-time per-key colour | `[8] = 08`, no begin; a live colour frame                                  | decompiled |
+| `19` | begin macro write        | in place of `18`                                                           | decompiled |
+| `15` | macro data               | `[8]` = packet count, payload ends `aa 55`                                 | decompiled |
+
+Prior work labelled `19`/`15` "display clear", `17` "display config", `27` "lighting" and `13` "reset footer"; the vendor code says otherwise.
+
+### Key maps (decompiled)
+
+576 bytes, 4 per key at `key_index * 4` (indices from the vendor's `layouts/rgb-keyboard.xml`), `aa 55` at bytes 574-575. A zero entry keeps the key's default, so an all-zero map resets the layer. `02 mods usage 00` sends a key with modifiers; other types cover mouse buttons (`01`), consumer keys (`03`), macros (`06`) and disabling (`05 03`). Page Up is index 118, so `02 00 4a 00` at offset 472 makes it Home.
 
 ### Clock
 
@@ -59,14 +70,14 @@ The stream (confirmed):
 | `256 …`     | each frame as 128x128 RGB565, little-endian, row-major from the top-left |
 | end         | zero padding to a whole chunk                                            |
 
-A still image is one frame in 9 chunks.
+A still image is one frame in 9 chunks. The vendor fills the unused header bytes and the padding with `ff` instead of zero (decompiled); both work.
 
 ### Behaviour (confirmed)
 
 - The keyboard shows its own progress screen (1-100%) for the whole upload, then the new image about a second after commit. There is no silent update.
 - A chunk takes about 145ms (the first about 220ms), so a still image takes about 1.5s and each further frame about 1.2s. 100 frames (801 chunks) took 115s.
 - Typing is unaffected during uploads.
-- The newest upload is always the one displayed. Slots do not form a library: older slots cannot be reached with the knob, and an upload header naming an older slot, committed without data, changes nothing.
+- The newest upload is always the one displayed. The firmware has a single animation slot (`gif_count="1"` in the vendor's layout file); the vendor fills the slot byte with its own list index. Older uploads cannot be reached with the knob, and an upload header committed without data changes nothing.
 - Uploads live in flash. They survive unplugging and show in wireless mode too.
 - The full 128x128 is visible with nothing drawn over it. Animations loop, and 20ms frames play smoothly. 100-frame animations play in full.
 
@@ -82,10 +93,9 @@ A commit shows the custom animation page; a clock sync shows the clock page.
 
 ## Open questions
 
-- Is there a command that switches pages, so an indicator could return to the custom animation (or leave it) without uploading?
-- What does `04 17` hold, and can the display config be read back?
-- Can the progress screen be suppressed, or a frame replaced without a full upload?
-- What limits animations besides the 255-frame header: flash size, or slot size?
+- The vendor driver has no command that switches pages, suppresses the progress screen or replaces part of an animation; the upload and the clock sync are its only screen operations. Whether the firmware has more is unknown, and finding out means probing unlisted ops on the device.
+- Can the key maps, settings and lighting be read back like the colour profile (`f5`)?
+- What limits animations besides the 255-frame header?
 
 ## Prior work
 
