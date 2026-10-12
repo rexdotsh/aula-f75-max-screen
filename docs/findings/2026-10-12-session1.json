@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-12",
+  "host": { "platform": "win32", "bun": "1.4.2", "node-hid": "3.4.0" },
+  "method": "agent-driven via scripts/action.ts, answers from the user observing the screen",
+  "tests": {
+    "pattern": {
+      "orientation": "Correct (row-major from top-left, no flip/rotation)",
+      "colors": "All correct (RGB565 little endian, R in high bits)",
+      "border": "All four edges visible (full 128x128 visible)",
+      "overlay": "Nothing drawn over the image",
+      "gradients": "Smooth"
+    },
+    "upload-behavior": {
+      "during": "Keyboard shows its own loading screen with 1-100% progress for the whole upload, ~1s settle, then the image",
+      "final": "BLUE (last upload wins)",
+      "typing": "Normal, no lag or dropped keys",
+      "data": {
+        "stillUploadMs": [1514, 1506, 1498],
+        "avgChunkMs": 148,
+        "maxChunkMs": 221,
+        "acks": "01 5a 02 00 ... on every chunk"
+      }
+    },
+    "slots": {
+      "slot2": "Uploading to slot 2 shows slot 2 immediately (newest upload is displayed)",
+      "cycle": "Keyboard controls cannot browse to older slots; only the latest upload is available",
+      "headerOnly": "begin + 04 72 (slot 1, 9 chunks) + commit with no data: no change on screen; commit reply status 0x00 (vs 0x01 after full upload, 0xff with nothing pending)"
+    },
+    "animation": {
+      "counter": "5 frames at delay byte 250 loop at ~0.5s per frame -> 2 ms per tick confirmed",
+      "sweep": "8 frames at delay byte 10 (20 ms) are fast and smooth",
+      "loops": true
+    },
+    "frames": {
+      "frames20": { "result": "All 20 frames play", "chunks": 161, "totalMs": 22968, "bytesPerSec": 28712 },
+      "frames100": {
+        "result": "All 100 frames play",
+        "chunks": 801,
+        "totalMs": 115058,
+        "bytesPerSec": 28515,
+        "maxChunkMs": 214
+      },
+      "loadingScreen": "Shown for the entire upload duration"
+    },
+    "clock": {
+      "replies": [
+        "04 18 00 01 ...",
+        "04 28 00 01 00 00 00 00 01 ...",
+        "00 01 5a 1a 0a 0c 10 34 3a 00 01 ... (time payload echoed)",
+        "04 02 00 01 ..."
+      ],
+      "result": "Screen switched to the clock page; time and date correct",
+      "animationKept": "Custom animation still on its page afterwards"
+    },
+    "controls": {
+      "knob": "Spinning the knob cycles pages; pressing the knob enters a menu",
+      "pages": [
+        "time + date + battery",
+        "config - system",
+        "config - effect",
+        "config - colour",
+        "config - brightness",
+        "config - speed",
+        "config - volume",
+        "config - language",
+        "custom animation (uploaded image)"
+      ],
+      "afterUpload": "Screen shows the custom animation page"
+    },
+    "persistence": {
+      "replug": "Boots to the clock page; one knob turn shows KEEP ME",
+      "power": "No power switch; full disconnect/reconnect keeps the image",
+      "wireless": "KEEP ME is shown in wireless mode too (stored in keyboard flash)"
+    }
+  }
+}

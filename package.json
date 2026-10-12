@@ -1,0 +1,31 @@
+{
+  "name": "aula-f75-max-screen",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Drive the 128x128 screen on the Aula F75 Max keyboard",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "screen": "bun scripts/screen.ts",
+    "check": "tsc -p .",
+    "lint": "oxlint --type-aware --deny-warnings",
+    "knip": "knip",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "node-hid": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "knip": "^6.41.0",
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0",
+    "oxlint-tsgolint": "^7.0.2004",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "bun@1.4.2"
+}
