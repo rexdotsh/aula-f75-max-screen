@@ -23,11 +23,18 @@ export function channels(pixel: number): [r: number, g: number, b: number] {
   return [(r << 3) | (r >> 2), (g << 2) | (g >> 4), (b << 3) | (b >> 2)];
 }
 
-export function color(hex: string): Color {
+/** 8-bit red, green and blue. */
+export type Rgb = readonly [r: number, g: number, b: number];
+
+export function parseHex(hex: string): Rgb {
   const digits = /^#?([0-9a-f]{6})$/i.exec(hex)?.[1];
   if (!digits) throw new RangeError(`not a #rrggbb color: ${hex}`);
   const value = Number.parseInt(digits, 16);
-  return rgb(value >> 16, (value >> 8) & 0xff, value & 0xff);
+  return [value >> 16, (value >> 8) & 0xff, value & 0xff];
+}
+
+export function color(hex: string): Color {
+  return rgb(...parseHex(hex));
 }
 
 const clamp = (value: number, max: number) => Math.min(max, Math.max(0, Math.round(value)));
