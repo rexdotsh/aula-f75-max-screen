@@ -50,7 +50,7 @@ Prior work labelled `19`/`15` "display clear", `17` "display config", `27` "ligh
 
 ### Per-key lighting (confirmed)
 
-Switch to the user-defined mode (`04 13`, mode `80`), then each `04 23` write sets every key's colour, with keys indexed by `light_index` from the vendor's layout file (Esc is 1). A write takes about 72ms and shows immediately, without `f0`; blinking a key by rewriting works cleanly. The keyboard runs on its battery when unplugged, so persistence across a replug does not show whether a write without `f0` reaches flash. See [session 2](findings/2026-10-12-session2-key-lighting.md).
+Switch to the user-defined mode (`04 13`, mode `80`), then each `04 23` write sets every key's colour, with keys indexed by `light_index` from the vendor's layout file (Esc is 1). Brightness `0` (byte 9 of the mode payload) turns every key off (confirmed). A write takes about 72ms and shows immediately, without `f0`; blinking a key by rewriting works cleanly. The keyboard runs on its battery when unplugged, so persistence across a replug does not show whether a write without `f0` reaches flash. See [session 2](findings/2026-10-12-session2-key-lighting.md).
 
 ### Key maps (decompiled)
 
